@@ -165,7 +165,7 @@ async function create(record,assets){
  const doc=await PDFDocument.create();doc.registerFontkit(kit);
  const regular=await doc.embedFont(regularBytes,{subset:true}),bold=await doc.embedFont(boldBytes,{subset:true});
  doc.setTitle('Bài thu hoạch ODEN - '+record.name);doc.setAuthor(record.name);doc.setSubject('Bài thu hoạch sau buổi học ODEN');doc.setCreator('ODEN');doc.setProducer('ODEN PDF');doc.setLanguage('vi-VN');
- const W=595.28,H=841.89,M=48,B=55,CW=W-2*M;
+ const W=595.28,H=841.89,M=48,CW=W-2*M;
  const ink=rgb(.094,.094,.094),muted=rgb(.40,.38,.36),accent=rgb(.855,.455,.322),dark=rgb(.61,.26,.15),line=rgb(.90,.87,.85);
  const supported=new Set(regular.getCharacterSet());
  function clean(value){return String(value??'').normalize('NFC').replace(/\r\n?/g,'\n').replace(/\t/g,'    ').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g,'').replace(/[^]/gu,c=>c==='\n'||supported.has(c.codePointAt(0))?c:'[U+'+c.codePointAt(0).toString(16).toUpperCase()+']');}
@@ -175,6 +175,8 @@ async function create(record,assets){
  const localTime=value=>{if(!value)return 'Không ghi nhận';const d=new Date(value);return Number.isFinite(d.getTime())?d.toLocaleString('vi-VN',{timeZone:'Asia/Ho_Chi_Minh',hour12:false}):String(value);};
  const day=value=>/^\d{4}-\d{2}-\d{2}$/.test(value||'')?value.split('-').reverse().join('/'):value||'Chưa điền';
  const duration=seconds=>{const n=Math.max(0,Math.round(seconds||0));return Math.floor(n/60)+' phút '+n%60+' giây';};
+ const details=['Mã bài: '+record.submissionId,'Mở bài: '+localTime(record.firstOpenedAt)+' | Xuất PDF: '+localTime(record.lastExportAt||record.submittedAt),'Onscreen time: '+duration(record.activeSeconds)+' | Số phiên mở: '+(record.sessions?.length||1)];
+ const detailLines=details.flatMap(item=>wrap(item,regular,7.2,CW)),B=60+detailLines.length*10;
  let page,y;
  function newPage(first=false){page=doc.addPage([W,H]);y=H-M;if(!first){page.drawText('ODEN / BÀI THU HOẠCH',{x:M,y:y-10,size:9,font:bold,color:dark});page.drawText(shorten(record.name+' | '+record.className,regular,8.5,290),{x:W-M-290,y:y-10,size:8.5,font:regular,color:muted});page.drawLine({start:{x:M,y:y-23},end:{x:W-M,y:y-23},thickness:.6,color:line});y-=47;}}
  function ensure(height){if(y-height<B)newPage();}
@@ -186,15 +188,13 @@ async function create(record,assets){
  y-=8;
  const pairs=[['HỌ VÀ TÊN',record.name,'MÃ HỌC VIÊN',record.studentId||'Không cung cấp'],['LỚP',record.className,'NGÀY HỌC ODEN',day(record.lessonDate)]];
  for(const pair of pairs){const left=wrap(pair[1],regular,11,300),right=wrap(pair[3],regular,11,160);const height=19+Math.max(left.length,right.length)*16;ensure(height+8);page.drawText(pair[0],{x:M,y:y-8,font:bold,size:8,color:muted});page.drawText(pair[2],{x:M+330,y:y-8,font:bold,size:8,color:muted});left.forEach((t,i)=>page.drawText(t,{x:M,y:y-26-i*16,font:regular,size:11,color:ink}));right.forEach((t,i)=>page.drawText(t,{x:M+330,y:y-26-i*16,font:regular,size:11,color:ink}));y-=height+10;}
- const details=[['Mã bài: '+record.submissionId],['Mở bài: '+localTime(record.firstOpenedAt)+' | Xuất PDF: '+localTime(record.lastExportAt||record.submittedAt)],['Onscreen time: '+duration(record.activeSeconds)+' | Số phiên mở: '+(record.sessions?.length||1)]];
- for(const item of details)textLines(wrap(item[0],regular,8,CW),regular,8,12,muted);
  y-=10;ensure(28);page.drawLine({start:{x:M,y},end:{x:W-M,y},thickness:.8,color:line});y-=22;
  record.questions.forEach((q,i)=>{
   const title=wrap(q.title,bold,12,CW-16),answer=wrap(q.answer,regular,11,CW);
   const need=28+title.length*17+Math.max(2,Math.min(3,answer.length))*17.5;
   ensure(Math.min(need,210));
   page.drawText('CÂU '+String(i+1).padStart(2,'0'),{x:M,y:y-8,size:8,font:bold,color:dark});
-  const count=(q.answer.match(/\p{L}+(?:['’]\p{L}+)*/gu)||[]).length+' từ';page.drawText(count,{x:W-M-width(count,regular,8),y:y-8,size:8,font:regular,color:muted});y-=20;
+  y-=20;
   for(let j=0;j<title.length;j++){ensure(j===title.length-1?17+35:17);page.drawRectangle({x:M,y:y-14,width:2,height:13,color:accent});page.drawText(title[j],{x:M+12,y:y-12,size:12,font:bold,color:ink});y-=17;}
   y-=8;
   for(let j=0;j<answer.length;j++){
@@ -204,7 +204,10 @@ async function create(record,assets){
   }
   y-=20;
  });
- const pages=doc.getPages();pages.forEach((p,i)=>{p.drawLine({start:{x:M,y:41},end:{x:W-M,y:41},color:line,thickness:.6});p.drawText(shorten(record.name+' | '+record.studentId+' | '+record.className,regular,8,CW-85),{x:M,y:26,font:regular,size:8,color:muted});const count='Trang '+(i+1)+' / '+pages.length;p.drawText(count,{x:W-M-width(count,regular,8),y:26,font:regular,size:8,color:muted});});
+ const pages=doc.getPages(),lastPage=pages[pages.length-1],faint=rgb(.65,.65,.65);
+ lastPage.drawLine({start:{x:M,y:55+detailLines.length*10},end:{x:W-M,y:55+detailLines.length*10},thickness:.35,color:line});
+ detailLines.forEach((text,i)=>lastPage.drawText(text,{x:M,y:50+(detailLines.length-1-i)*10,size:7.2,font:regular,color:faint}));
+ pages.forEach((p,i)=>{p.drawLine({start:{x:M,y:41},end:{x:W-M,y:41},color:line,thickness:.6});p.drawText(shorten(record.name+' | '+record.studentId+' | '+record.className,regular,8,CW-85),{x:M,y:26,font:regular,size:8,color:muted});const count='Trang '+(i+1)+' / '+pages.length;p.drawText(count,{x:W-M-width(count,regular,8),y:26,font:regular,size:8,color:muted});});
  return doc.save({useObjectStreams:true,addDefaultPage:false});
 }
 root.OdenPdf={create};
@@ -269,7 +272,7 @@ function prefillFields(value){
  return {name:names[0],className:classes[0],date:dates[0].key,dateEncoding:dates[0].encoding};
 }
 function formsUrlFor(r){if(!CONFIG.formsUrl)return '';const u=new URL(CONFIG.formsUrl),f=prefillFields(CONFIG.formsUrl);if(!f)return u.href;u.searchParams.set(f.name,r.name);u.searchParams.set(f.className,r.className);u.searchParams.set(f.date,f.dateEncoding==='json-iso'?JSON.stringify(r.lessonDate):f.dateEncoding==='display'?displayDay(r.lessonDate):r.lessonDate);return u.href.replace(/\+/g,'%20');}
-function pdfFileName(r){const name=String(r.name).normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/đ/g,'d').replace(/Đ/g,'D').replace(/[^a-zA-Z0-9]/g,'').slice(0,120)||'HocVien';return name+'_'+displayDay(r.lessonDate).replaceAll('/','.')+'.pdf';}
+function pdfFileName(r){const name=String(r.name).normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/đ/g,'d').replace(/Đ/g,'D').replace(/[^a-zA-Z0-9]/g,'').slice(0,120)||'HocVien';const [year,month,day]=r.lessonDate.split('-');return month+'.'+day+'.'+year+'_'+name+'.pdf';}
 
 studentQuestions();getFields().forEach(el=>{const v=draft.values?.[el.name];if(typeof v==='string'&&!el.readOnly&&(el.name!=='lessonDate'||Boolean(parseDay(displayDay(v)))))el.value=v;});update();
 if(!storageOK)$('saveStatus').textContent='Không thể lưu nháp, hãy tải bài về.';else if(Object.keys(draft.values||{}).length)$('saveStatus').textContent='Đã khôi phục bản đã lưu';
